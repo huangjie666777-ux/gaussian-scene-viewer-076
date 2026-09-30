@@ -1,3 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-createRoot(document.getElementById("root")!).render(<React.StrictMode><main>Gaussian Scene</main></React.StrictMode>);
+import ViewerApp from "./ui/ViewerApp.tsx";
+
+createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <ViewerApp />
+  </React.StrictMode>,
+);

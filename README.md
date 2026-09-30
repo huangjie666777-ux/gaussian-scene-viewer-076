@@ -1,11 +1,66 @@
-# Gaussian Scene
+# 3D Gaussian Splatting 浏览器
 
-Web project starter.
+供数字资产人员检查高斯重建外观的网页工具。基于 React 19 + Three.js（相机/交互）+ 原生 WebGL2（高斯实例化绘制），排序与 EWA 投影在 Web Worker 中完成。
 
-- Node.js22.19.0
-- `npm install`
-- `npm run dev`
-- `npm run build`
-- `npm test`
+## 运行
 
-Scene source attribution is in `public/scenes/ATTRIBUTION.md`.
+```bash
+npm install
+npm run dev      # 开发服务器（默认 http://localhost:5173）
+npm run build    # 类型检查 + 生产构建
+npm run preview  # 预览生产构建
+npm test         # vitest 单元测试
+```
+
+## 操作
+
+- 左键拖动：旋转视角
+- 右键拖动：平移
+- 滚轮：缩放
+- “适配全景”：按当前场景包围盒把全部高斯纳入视野
+- “重置视角”：恢复打开该场景时的初始视角
+- 面板显示加载状态、错误信息、高斯总数与当前可见数量
+- 窗口尺寸变化会自动按设备像素比重建投影并重新排序
+
+内置场景位于 `public/scenes/`（当前为 `guitar.splat`），也可通过“本地文件”选择本机 `.splat`。解析失败的文件会被拒绝，当前画面不会被损坏数据覆盖。
+
+## `.splat` 格式
+
+每条记录固定 **32 字节，小端序**：
+
+| 偏移 | 字节 | 内容 |
+| --- | --- | --- |
+| 0 | 12 | Float32 ×3：位置 x, y, z |
+| 12 | 12 | Float32 ×3：三轴正尺度 sx, sy, sz |
+| 24 | 3 | Uint8：R, G, B（固定反照率颜色，不做球谐） |
+| 27 | 1 | Uint8：Alpha |
+| 28 | 4 | Int8 语义四元数 w, x, y, z，解码 `(b-128)/128` 后归一化 |
+
+校验规则（任一不满足即拒绝整个文件）：
+
+- 文件长度必须是 32 的非零整数倍（拒绝截断）
+- 位置与尺度必须为有限数
+- 三个尺度都必须严格为正
+- 四元数不能为零向量，解码后归一化为单位四元数
+
+## 渲染管线
+
+代码按职责拆分：
+
+- `src/splat/parser.ts`：二进制解析与校验
+- `src/splat/covariance.ts`：由四元数与尺度构造世界空间三维协方差 Σ = R·diag(s²)·Rᵀ
+- `src/splat/projection.ts`：相机旋转变换 + 透视雅可比（EWA）得到屏幕二维协方差与椭圆半径；剔除相机后方、贴近近裁面、视口外或退化的高斯
+- `src/worker/`：Worker 中完成投影、4 趟基数排序（相机空间深度升序）与实例数据打包；`sceneId/taskId/视口尺寸` 三重校验保证连续转动或换文件时迟到结果不会覆盖新状态
+- `src/render/splatRenderer.ts`：WebGL2 实例化的屏幕空间四边形，顶点着色器用二维协方差计算高斯衰减，远→近画家算法，`SRC_ALPHA / ONE_MINUS_SRC_ALPHA` 混合，关闭深度写入
+- `src/view/`：three.js 透视相机、轨道控制、场景切换与资源生命周期
+
+## 渲染取舍
+
+- 每条高斯以其投影椭圆（3σ 外接四边形 + 片元高斯衰减）绘制，不是等大点、球体或贴图，也没有接入任何现成高斯渲染器。
+- 每视角在 Worker 做一次 CPU 端 EWA 投影与排序，结果通过 transferable `ArrayBuffer` 回传，主线程只负责上传与绘制；交互期间以约 30ms 节流合并请求，始终保持一个在飞排序任务。
+- 颜色仅使用文件中的固定 RGB（不做球谐/视角相关颜色）；Alpha 来自文件并与高斯衰减相乘。
+- 半透明渲染采用按深度排序的 over 混合；极端穿插情况下的顺序错误属于画家算法的已知局限。
+- 相机后方及近裁面附近的高斯直接剔除，避免透视雅可比把它们放大成铺满屏幕的异常椭圆。
+- 设备像素比上限为 2，以平衡高分屏清晰度与排序/填充开销。
+
+场景来源与许可见 `public/scenes/ATTRIBUTION.md` 与 `public/scenes/PLAYCANVAS-LICENSE.txt`。
