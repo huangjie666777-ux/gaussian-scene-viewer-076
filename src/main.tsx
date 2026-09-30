@@ -1,3 +1,9 @@
-import React from "react";
-import { createRoot } from "react-dom/client";
-createRoot(document.getElementById("root")!).render(<React.StrictMode><main>Gaussian Scene</main></React.StrictMode>);
+import React from 'react';
+import { createRoot } from 'react-dom/client';
+import { App } from './ui/App';
+
+createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
